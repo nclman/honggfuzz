@@ -320,6 +320,16 @@ static bool subproc_PrepareExecv(run_t* run) {
             PLOG_E("dup2(_HF_INPUT_FD=%d, STDIN_FILENO=%d)", run->dynfile->fd, STDIN_FILENO);
             return false;
         }
+        if (run->global->exe.use_argfile) {
+            if (TEMP_FAILURE_RETRY(dup2(run->argfile->fd, _HF_ARGFILE1_FD)) == -1) {
+                PLOG_E("dup2('%d', _HF_ARGFILE_FD='%d')", run->argfile->fd, _HF_ARGFILE1_FD);
+                return false;
+            }
+            if (lseek(_HF_ARGFILE1_FD, 0, SEEK_SET) == (off_t)-1) {
+                PLOG_E("lseek(_HF_ARGFILE1_FD=%d, 0, SEEK_SET)", _HF_ARGFILE1_FD);
+                return false;
+            }
+        }
     }
 
     /* The log FD */

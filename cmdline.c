@@ -55,9 +55,9 @@ struct custom_option {
     const char*   descr;
 };
 
-static bool checkFor_FILE_PLACEHOLDER(const char* const* args) {
+static bool checkFor_Pattern(const char* pattern, const char* const* args) {
     for (int x = 0; args[x]; x++) {
-        if (strstr(args[x], _HF_FILE_PLACEHOLDER)) {
+        if (strstr(args[x], pattern)) {
             return true;
         }
     }
@@ -238,7 +238,7 @@ static bool cmdlineVerify(honggfuzz_t* hfuzz) {
     }
 
     if (!hfuzz->exe.fuzzStdin && !hfuzz->exe.persistent &&
-        !checkFor_FILE_PLACEHOLDER(hfuzz->exe.cmdline)) {
+        !checkFor_Pattern(_HF_FILE_PLACEHOLDER, hfuzz->exe.cmdline)) {
         LOG_E("You must specify '" _HF_FILE_PLACEHOLDER
               "' if the -s (stdin fuzzing) or --persistent options are not set");
         return false;
@@ -289,6 +289,11 @@ static bool cmdlineVerify(honggfuzz_t* hfuzz) {
     if (hfuzz->io.maxFileSz > _HF_INPUT_MAX_SIZE) {
         LOG_E("Maximum file size '%zu' bigger than the maximum size '%zu'", hfuzz->io.maxFileSz,
             (size_t)_HF_INPUT_MAX_SIZE);
+        return false;
+    }
+
+    if (hfuzz->exe.use_argfile && hfuzz->exe.postExternalCommand == NULL) {
+        LOG_E("___ARG___ requires -pprocess_cmd");
         return false;
     }
 
@@ -344,6 +349,7 @@ bool cmdlineParse(int argc, char* argv[], honggfuzz_t* hfuzz) {
                 .dataLimit             = 0U,
                 .stackLimit            = 0U,
                 .clearEnv              = false,
+                .use_argfile           = false,
                 .env_ptrs              = {},
                 .env_vals              = {},
             },
@@ -797,6 +803,8 @@ bool cmdlineParse(int argc, char* argv[], honggfuzz_t* hfuzz) {
         LOG_E("Your fuzzed binary '%s' doesn't seem to exist", hfuzz->exe.cmdline[0]);
         return false;
     }
+    if (checkFor_Pattern(_HF_ARG_PLACEHOLDER, hfuzz->exe.cmdline))
+        hfuzz->exe.use_argfile = true;
     if (!cmdlineVerify(hfuzz)) {
         return false;
     }

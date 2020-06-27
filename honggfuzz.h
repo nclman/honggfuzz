@@ -44,6 +44,9 @@
 /* Name of the template which will be replaced with the proper name of the file */
 #define _HF_FILE_PLACEHOLDER "___FILE___"
 
+/* Name of the template which will be replaced with additional file name argument */
+#define _HF_ARG_PLACEHOLDER "___ARG___"
+
 /* Default name of the report created with some architectures */
 #define _HF_REPORT_FILE "HONGGFUZZ.REPORT.TXT"
 
@@ -77,6 +80,8 @@
 /* Default maximum size of produced inputs */
 #define _HF_INPUT_DEFAULT_SIZE (1024ULL * 8)
 
+/* FD used to represent additional input file */
+#define _HF_ARGFILE1_FD 1017
 /* Per-thread bitmap */
 #define _HF_PERTHREAD_BITMAP_FD 1018
 /* FD used to report back used int/str constants from the fuzzed process */
@@ -93,6 +98,7 @@
 
 /* Input file as a string */
 #define _HF_INPUT_FILE_PATH "/dev/fd/" HF_XSTR(_HF_INPUT_FD)
+#define _HF_ARGFILE1_PATH "/dev/fd/" HF_XSTR(_HF_ARGFILE1_FD)
 
 /* Maximum number of supported execve() args */
 #define _HF_ARGS_MAX 512
@@ -158,6 +164,15 @@ struct _dynfile_t {
 };
 
 typedef struct _dynfile_t dynfile_t;
+
+struct _argfile_t {
+    size_t             size;
+    int                fd;
+    char               path[PATH_MAX];
+    uint8_t*           data;
+};
+
+typedef struct _argfile_t argfile_t;
 
 struct strings_t {
     size_t len;
@@ -231,6 +246,7 @@ typedef struct {
         uint64_t           coreLimit;
         uint64_t           stackLimit;
         bool               clearEnv;
+        bool               use_argfile;
         char*              env_ptrs[128];
         char               env_vals[128][4096];
         sigset_t           waitSigSet;
@@ -358,6 +374,7 @@ typedef struct {
     bool         mainWorker;
     unsigned     mutationsPerRun;
     dynfile_t*   dynfile;
+    argfile_t*   argfile;
     bool         staticFileTryMore;
     uint32_t     fuzzNo;
     int          persistentSock;

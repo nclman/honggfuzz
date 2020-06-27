@@ -46,9 +46,15 @@ __attribute__((constructor)) static void initializePersistent(void) {
         return;
     }
     int mflags = files_getTmpMapFlags(MAP_SHARED, /* nocore= */ false);
+    if ((inputFile = mmap(NULL, _HF_INPUT_MAX_SIZE, PROT_READ, mflags, _HF_ARGFILE1_FD, 0)) ==
+        MAP_FAILED) {
+        /* non-fatal error as extra arguments may not be used */
+        PLOG_W("mmap(fd=%d, size=%zu) of argument file failed", _HF_ARGFILE1_FD,
+            (size_t)_HF_INPUT_MAX_SIZE);
+    }
     if ((inputFile = mmap(NULL, _HF_INPUT_MAX_SIZE, PROT_READ, mflags, _HF_INPUT_FD, 0)) ==
         MAP_FAILED) {
-        PLOG_F("mmap(fd=%d, size=%zu) of the input file failed", _HF_INPUT_FD,
+        PLOG_F("mmap(fd=%d, size=%zu) of input file failed", _HF_INPUT_FD,
             (size_t)_HF_INPUT_MAX_SIZE);
     }
 }

@@ -500,6 +500,21 @@ static void* fuzz_threadNew(void* arg) {
         }
     };
 
+    snprintf(mapname, sizeof(mapname), "hf-%u-argfile", fuzzNo);
+    if (!hfuzz->socketFuzzer.enabled && hfuzz->exe.use_argfile) {
+        run.argfile = (argfile_t*)util_Malloc(sizeof(argfile_t) + hfuzz->io.maxFileSz);
+        if (!(run.argfile->data = files_mapSharedMem(hfuzz->mutate.maxInputSz, &(run.argfile->fd),
+                  mapname, /* nocore= */ true, /* exportmap= */ false))) {
+            LOG_F("Couldn't create an input file of size: %zu, name:'%s'", hfuzz->mutate.maxInputSz,
+                mapname);
+        }
+    }
+    defer {
+        if (run.argfile->fd != -1) {
+            close(run.argfile->fd);
+        }
+    };
+
     snprintf(mapname, sizeof(mapname), "hf-%u-perthreadmap", fuzzNo);
     if ((run.perThreadCovFeedbackFd = files_createSharedMem(sizeof(feedback_t), mapname,
              /* exportmap= */ run.global->io.exportFeedback)) == -1) {

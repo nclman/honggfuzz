@@ -713,15 +713,48 @@ bool input_postProcessFile(run_t* run, const char* cmd) {
     char fname[PATH_MAX];
     snprintf(fname, sizeof(fname), "/dev/fd/%d", fd);
 
-    const char* const argv[] = {cmd, fname, NULL};
+    char* argfname = NULL;
+    int arg_fd;
+    if (run->global->exe.use_argfile && run->argfile) {
+        arg_fd =
+            files_writeBufToTmpFile(run->global->io.workDir, run->argfile->data, run->argfile->size, 0);
+        if (arg_fd == -1) {
+            LOG_E("Couldn't write arg file to temp buffer");
+            return false;
+        }
+        defer {
+            close(arg_fd);
+        };
+
+        argfname = malloc(PATH_MAX);
+        if (argfname) {
+            snprintf(argfname, sizeof(fname), "/dev/fd/%d", arg_fd);
+        } else {
+            LOG_E("Failed to malloc argfname");
+            return false;
+        }
+        defer {
+            free(argfname);
+        }
+    }
+
+    const char* const argv[] = {cmd, fname, argfname, NULL};
     if (subproc_System(run, argv) != 0) {
         LOG_E("Subprocess '%s' returned abnormally", cmd);
         return false;
     }
-    LOG_D("Subporcess '%s' finished with success", cmd);
+    LOG_D("Subprocess '%s' finished with success", cmd);
 
     input_setSize(run, run->global->mutate.maxInputSz);
-    ssize_t sz = files_readFromFdSeek(fd, run->dynfile->data, run->global->mutate.maxInputSz, 0);
+    ssize_t sz;
+    if (run->global->exe.use_argfile && run->argfile) {
+        sz = files_readFromFdSeek(arg_fd, run->argfile->data, run->global->mutate.maxInputSz, 0);
+        if (sz == -1) {
+            LOG_E("Couldn't read file from fd=%d", fd);
+            return false;
+        }
+    }
+    sz = files_readFromFdSeek(fd, run->dynfile->data, run->global->mutate.maxInputSz, 0);
     if (sz == -1) {
         LOG_E("Couldn't read file from fd=%d", fd);
         return false;
