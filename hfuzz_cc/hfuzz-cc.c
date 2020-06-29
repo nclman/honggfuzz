@@ -22,6 +22,7 @@
 
 static bool isCXX                     = false;
 static bool isGCC                     = false;
+static bool isLinker                  = false;
 static bool usePCGuard                = true;
 static bool hasCmdLineFSanitizeFuzzer = false;
 
@@ -124,15 +125,6 @@ static int hf_execvp(const char* file, char** argv) {
 }
 
 static int execCC(int argc, char** argv) {
-    if (useASAN()) {
-        argv[argc++] = "-fsanitize=address";
-    }
-    if (useMSAN()) {
-        argv[argc++] = "-fsanitize=memory";
-    }
-    if (useUBSAN()) {
-        argv[argc++] = "-fsanitize=undefined";
-    }
     argv[argc] = NULL;
 
     if (isCXX) {
@@ -140,6 +132,13 @@ static int execCC(int argc, char** argv) {
         if (cxx_path != NULL) {
             hf_execvp(cxx_path, argv);
             PLOG_E("execvp('%s')", cxx_path);
+            return EXIT_FAILURE;
+        }
+    } else if (isLinker) {
+        const char* ld_path = getenv("HFUZZ_LD_PATH");
+        if (ld_path != NULL) {
+            hf_execvp(ld_path, argv);
+            PLOG_E("execvp('%s')", ld_path);
             return EXIT_FAILURE;
         }
     } else {
@@ -363,6 +362,15 @@ static void commonPostOpts(int* j, char** args) {
             args[(*j)++] = "-fsanitize-coverage=trace-cmp,trace-div,indirect-calls";
         }
     }
+
+    if (useASAN())
+        args[(*j)++] = "-fsanitize=address";
+
+    if (useMSAN())
+        args[(*j)++] = "-fsanitize=memory";
+
+    if (useUBSAN())
+        args[(*j)++] = "-fsanitize=undefined";
 }
 
 static int ccMode(int argc, char** argv) {
@@ -375,13 +383,15 @@ static int ccMode(int argc, char** argv) {
         args[j++] = "cc";
     }
 
-    commonPreOpts(&j, args);
+    if (!isLinker)
+        commonPreOpts(&j, args);
 
     for (int i = 1; i < argc; i++) {
         args[j++] = argv[i];
     }
 
-    commonPostOpts(&j, args);
+    if (!isLinker)
+        commonPostOpts(&j, args);
 
     return execCC(j, args);
 }
@@ -398,73 +408,143 @@ static int ldMode(int argc, char** argv) {
 
     commonPreOpts(&j, args);
 
-/* MacOS X linker doesn't like those */
+    if (isLinker) {
+        /* MacOS X linker doesn't like those */
 #ifndef _HF_ARCH_DARWIN
-    /* Intercept common *cmp functions */
-    args[j++] = "-Wl,--wrap=strcmp";
-    args[j++] = "-Wl,--wrap=strcasecmp";
-    args[j++] = "-Wl,--wrap=stricmp";
-    args[j++] = "-Wl,--wrap=strncmp";
-    args[j++] = "-Wl,--wrap=strncasecmp";
-    args[j++] = "-Wl,--wrap=strnicmp";
-    args[j++] = "-Wl,--wrap=strstr";
-    args[j++] = "-Wl,--wrap=strcasestr";
-    args[j++] = "-Wl,--wrap=memcmp";
-    args[j++] = "-Wl,--wrap=bcmp";
-    args[j++] = "-Wl,--wrap=memmem";
-    args[j++] = "-Wl,--wrap=strcpy";
-    /* Apache httpd */
-    args[j++] = "-Wl,--wrap=ap_cstr_casecmp";
-    args[j++] = "-Wl,--wrap=ap_cstr_casecmpn";
-    args[j++] = "-Wl,--wrap=ap_strcasestr";
-    args[j++] = "-Wl,--wrap=apr_cstr_casecmp";
-    args[j++] = "-Wl,--wrap=apr_cstr_casecmpn";
-    /* *SSL */
-    args[j++] = "-Wl,--wrap=CRYPTO_memcmp";
-    args[j++] = "-Wl,--wrap=OPENSSL_memcmp";
-    args[j++] = "-Wl,--wrap=OPENSSL_strcasecmp";
-    args[j++] = "-Wl,--wrap=OPENSSL_strncasecmp";
-    args[j++] = "-Wl,--wrap=memcmpct";
-    /* libXML2 */
-    args[j++] = "-Wl,--wrap=xmlStrncmp";
-    args[j++] = "-Wl,--wrap=xmlStrcmp";
-    args[j++] = "-Wl,--wrap=xmlStrEqual";
-    args[j++] = "-Wl,--wrap=xmlStrcasecmp";
-    args[j++] = "-Wl,--wrap=xmlStrncasecmp";
-    args[j++] = "-Wl,--wrap=xmlStrstr";
-    args[j++] = "-Wl,--wrap=xmlStrcasestr";
-    /* Samba */
-    args[j++] = "-Wl,--wrap=memcmp_const_time";
-    args[j++] = "-Wl,--wrap=strcsequal";
-    /* LittleCMS */
-    args[j++] = "-Wl,--wrap=cmsstrcasecmp";
-    /* GLib */
-    args[j++] = "-Wl,--wrap=g_strcmp0";
-    args[j++] = "-Wl,--wrap=g_strcasecmp";
-    args[j++] = "-Wl,--wrap=g_strncasecmp";
-    args[j++] = "-Wl,--wrap=g_strstr_len";
-    args[j++] = "-Wl,--wrap=g_ascii_strcasecmp";
-    args[j++] = "-Wl,--wrap=g_ascii_strncasecmp";
-    args[j++] = "-Wl,--wrap=g_str_has_prefix";
-    args[j++] = "-Wl,--wrap=g_str_has_suffix";
-    /* CUrl */
-    args[j++] = "-Wl,--wrap=Curl_strcasecompare";
-    args[j++] = "-Wl,--wrap=curl_strequal";
-    args[j++] = "-Wl,--wrap=Curl_safe_strcasecompare";
-    args[j++] = "-Wl,--wrap=Curl_strncasecompare";
-    args[j++] = "-Wl,--wrap=curl_strnequal";
+        /* Intercept common *cmp functions */
+        args[j++] = "--wrap=strcmp";
+        args[j++] = "--wrap=strcasecmp";
+        args[j++] = "--wrap=stricmp";
+        args[j++] = "--wrap=strncmp";
+        args[j++] = "--wrap=strncasecmp";
+        args[j++] = "--wrap=strnicmp";
+        args[j++] = "--wrap=strstr";
+        args[j++] = "--wrap=strcasestr";
+        args[j++] = "--wrap=memcmp";
+        args[j++] = "--wrap=bcmp";
+        args[j++] = "--wrap=memmem";
+        args[j++] = "--wrap=strcpy";
+        /* Apache httpd */
+        args[j++] = "--wrap=ap_cstr_casecmp";
+        args[j++] = "--wrap=ap_cstr_casecmpn";
+        args[j++] = "--wrap=ap_strcasestr";
+        args[j++] = "--wrap=apr_cstr_casecmp";
+        args[j++] = "--wrap=apr_cstr_casecmpn";
+        /* *SSL */
+        args[j++] = "--wrap=CRYPTO_memcmp";
+        args[j++] = "--wrap=OPENSSL_memcmp";
+        args[j++] = "--wrap=OPENSSL_strcasecmp";
+        args[j++] = "--wrap=OPENSSL_strncasecmp";
+        args[j++] = "--wrap=memcmpct";
+        /* libXML2 */
+        args[j++] = "--wrap=xmlStrncmp";
+        args[j++] = "--wrap=xmlStrcmp";
+        args[j++] = "--wrap=xmlStrEqual";
+        args[j++] = "--wrap=xmlStrcasecmp";
+        args[j++] = "--wrap=xmlStrncasecmp";
+        args[j++] = "--wrap=xmlStrstr";
+        args[j++] = "--wrap=xmlStrcasestr";
+        /* Samba */
+        args[j++] = "--wrap=memcmp_const_time";
+        args[j++] = "--wrap=strcsequal";
+        /* LittleCMS */
+        args[j++] = "--wrap=cmsstrcasecmp";
+        /* GLib */
+        args[j++] = "--wrap=g_strcmp0";
+        args[j++] = "--wrap=g_strcasecmp";
+        args[j++] = "--wrap=g_strncasecmp";
+        args[j++] = "--wrap=g_strstr_len";
+        args[j++] = "--wrap=g_ascii_strcasecmp";
+        args[j++] = "--wrap=g_ascii_strncasecmp";
+        args[j++] = "--wrap=g_str_has_prefix";
+        args[j++] = "--wrap=g_str_has_suffix";
+        /* CUrl */
+        args[j++] = "--wrap=Curl_strcasecompare";
+        args[j++] = "--wrap=curl_strequal";
+        args[j++] = "--wrap=Curl_safe_strcasecompare";
+        args[j++] = "--wrap=Curl_strncasecompare";
+        args[j++] = "--wrap=curl_strnequal";
 #endif /* _HF_ARCH_DARWIN */
 
-    /* Pull modules defining the following symbols (if they exist) */
+        /* Pull modules defining the following symbols (if they exist) */
 #ifdef _HF_ARCH_DARWIN
-    args[j++] = "-Wl,-U,_HonggfuzzNetDriver_main";
-    args[j++] = "-Wl,-U,_LIBHFUZZ_module_instrument";
-    args[j++] = "-Wl,-U,_LIBHFUZZ_module_memorycmp";
+        args[j++] = "-U,_HonggfuzzNetDriver_main";
+        args[j++] = "-U,_LIBHFUZZ_module_instrument";
+        args[j++] = "-U,_LIBHFUZZ_module_memorycmp";
 #else  /* _HF_ARCH_DARWIN */
-    args[j++] = "-Wl,-u,HonggfuzzNetDriver_main";
-    args[j++] = "-Wl,-u,LIBHFUZZ_module_instrument";
-    args[j++] = "-Wl,-u,LIBHFUZZ_module_memorycmp";
+        args[j++] = "-u,HonggfuzzNetDriver_main";
+        args[j++] = "-u,LIBHFUZZ_module_instrument";
+        args[j++] = "-u,LIBHFUZZ_module_memorycmp";
 #endif /* _HF_ARCH_DARWIN */
+    } else {
+/* MacOS X linker doesn't like those */
+#ifndef _HF_ARCH_DARWIN
+        /* Intercept common *cmp functions */
+        args[j++] = "-Wl,--wrap=strcmp";
+        args[j++] = "-Wl,--wrap=strcasecmp";
+        args[j++] = "-Wl,--wrap=stricmp";
+        args[j++] = "-Wl,--wrap=strncmp";
+        args[j++] = "-Wl,--wrap=strncasecmp";
+        args[j++] = "-Wl,--wrap=strnicmp";
+        args[j++] = "-Wl,--wrap=strstr";
+        args[j++] = "-Wl,--wrap=strcasestr";
+        args[j++] = "-Wl,--wrap=memcmp";
+        args[j++] = "-Wl,--wrap=bcmp";
+        args[j++] = "-Wl,--wrap=memmem";
+        args[j++] = "-Wl,--wrap=strcpy";
+        /* Apache httpd */
+        args[j++] = "-Wl,--wrap=ap_cstr_casecmp";
+        args[j++] = "-Wl,--wrap=ap_cstr_casecmpn";
+        args[j++] = "-Wl,--wrap=ap_strcasestr";
+        args[j++] = "-Wl,--wrap=apr_cstr_casecmp";
+        args[j++] = "-Wl,--wrap=apr_cstr_casecmpn";
+        /* *SSL */
+        args[j++] = "-Wl,--wrap=CRYPTO_memcmp";
+        args[j++] = "-Wl,--wrap=OPENSSL_memcmp";
+        args[j++] = "-Wl,--wrap=OPENSSL_strcasecmp";
+        args[j++] = "-Wl,--wrap=OPENSSL_strncasecmp";
+        args[j++] = "-Wl,--wrap=memcmpct";
+        /* libXML2 */
+        args[j++] = "-Wl,--wrap=xmlStrncmp";
+        args[j++] = "-Wl,--wrap=xmlStrcmp";
+        args[j++] = "-Wl,--wrap=xmlStrEqual";
+        args[j++] = "-Wl,--wrap=xmlStrcasecmp";
+        args[j++] = "-Wl,--wrap=xmlStrncasecmp";
+        args[j++] = "-Wl,--wrap=xmlStrstr";
+        args[j++] = "-Wl,--wrap=xmlStrcasestr";
+        /* Samba */
+        args[j++] = "-Wl,--wrap=memcmp_const_time";
+        args[j++] = "-Wl,--wrap=strcsequal";
+        /* LittleCMS */
+        args[j++] = "-Wl,--wrap=cmsstrcasecmp";
+        /* GLib */
+        args[j++] = "-Wl,--wrap=g_strcmp0";
+        args[j++] = "-Wl,--wrap=g_strcasecmp";
+        args[j++] = "-Wl,--wrap=g_strncasecmp";
+        args[j++] = "-Wl,--wrap=g_strstr_len";
+        args[j++] = "-Wl,--wrap=g_ascii_strcasecmp";
+        args[j++] = "-Wl,--wrap=g_ascii_strncasecmp";
+        args[j++] = "-Wl,--wrap=g_str_has_prefix";
+        args[j++] = "-Wl,--wrap=g_str_has_suffix";
+        /* CUrl */
+        args[j++] = "-Wl,--wrap=Curl_strcasecompare";
+        args[j++] = "-Wl,--wrap=curl_strequal";
+        args[j++] = "-Wl,--wrap=Curl_safe_strcasecompare";
+        args[j++] = "-Wl,--wrap=Curl_strncasecompare";
+        args[j++] = "-Wl,--wrap=curl_strnequal";
+#endif /* _HF_ARCH_DARWIN */
+
+        /* Pull modules defining the following symbols (if they exist) */
+#ifdef _HF_ARCH_DARWIN
+        args[j++] = "-Wl,-U,_HonggfuzzNetDriver_main";
+        args[j++] = "-Wl,-U,_LIBHFUZZ_module_instrument";
+        args[j++] = "-Wl,-U,_LIBHFUZZ_module_memorycmp";
+#else  /* _HF_ARCH_DARWIN */
+        args[j++] = "-Wl,-u,HonggfuzzNetDriver_main";
+        args[j++] = "-Wl,-u,LIBHFUZZ_module_instrument";
+        args[j++] = "-Wl,-u,LIBHFUZZ_module_memorycmp";
+#endif /* _HF_ARCH_DARWIN */
+    }
 
     for (int i = 1; i < argc; i++) {
         args[j++] = argv[i];
@@ -476,7 +556,7 @@ static int ldMode(int argc, char** argv) {
     args[j++] = getLibHFCommonPath();
 
     /* Needed by libhfcommon */
-    args[j++] = "-pthread";
+    args[j++] = "-lpthread";
 #if !defined(__NetBSD__)
     args[j++] = "-ldl";
 #endif /* !defined(__NetBSD__) */
@@ -487,7 +567,8 @@ static int ldMode(int argc, char** argv) {
     args[j++] = "-latomic";
 #endif
 
-    commonPostOpts(&j, args);
+    if (!isLinker)
+        commonPostOpts(&j, args);
 
     return execCC(j, args);
 }
@@ -514,6 +595,9 @@ int main(int argc, char** argv) {
     }
     if (baseNameContains(argv[0], "-8bitcnt-")) {
         usePCGuard = false;
+    }
+    if (baseNameContains(argv[0], "lld")) { /* this name subject to change */
+        isLinker = true;
     }
     hasCmdLineFSanitizeFuzzer = hasFSanitizeFuzzer(argc, argv);
 
