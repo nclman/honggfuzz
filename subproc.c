@@ -191,6 +191,8 @@ static void subproc_prepareExecvArgs(run_t* run) {
         const char* ph_str = strstr(run->global->exe.cmdline[x], _HF_FILE_PLACEHOLDER);
         if (!strcmp(run->global->exe.cmdline[x], _HF_FILE_PLACEHOLDER)) {
             run->args[x] = _HF_INPUT_FILE_PATH;
+	} else if (!strcmp(run->global->exe.cmdline[x], _HF_ARG_PLACEHOLDER)) {
+            run->args[x] = _HF_ARGFILE1_PATH;
         } else if (ph_str) {
             static __thread char argData[PATH_MAX];
             snprintf(argData, sizeof(argData), "%.*s%s",
