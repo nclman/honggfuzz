@@ -700,6 +700,8 @@ bool input_prepareExternalFile(run_t* run) {
 }
 
 bool input_postProcessFile(run_t* run, const char* cmd) {
+    char* argfname = NULL;
+    int arg_fd = 0;
     int fd =
         files_writeBufToTmpFile(run->global->io.workDir, run->dynfile->data, run->dynfile->size, 0);
     if (fd == -1) {
@@ -708,13 +710,15 @@ bool input_postProcessFile(run_t* run, const char* cmd) {
     }
     defer {
         close(fd);
+        if (arg_fd > 0)
+            close(arg_fd);
+        if (argfname)
+            free(argfname);
     };
 
     char fname[PATH_MAX];
     snprintf(fname, sizeof(fname), "/dev/fd/%d", fd);
 
-    char* argfname = NULL;
-    int arg_fd;
     if (run->global->exe.use_argfile && run->argfile) {
         arg_fd =
             files_writeBufToTmpFile(run->global->io.workDir, run->argfile->data, run->argfile->size, 0);
@@ -722,9 +726,6 @@ bool input_postProcessFile(run_t* run, const char* cmd) {
             LOG_E("Couldn't write arg file to temp buffer");
             return false;
         }
-        defer {
-            close(arg_fd);
-        };
 
         argfname = malloc(PATH_MAX);
         if (argfname) {
@@ -732,9 +733,6 @@ bool input_postProcessFile(run_t* run, const char* cmd) {
         } else {
             LOG_E("Failed to malloc argfname");
             return false;
-        }
-        defer {
-            free(argfname);
         }
     }
 
